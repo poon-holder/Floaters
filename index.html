@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+<title>Plotter — physics prototype</title>
+<style>
+:root{
+  --bg:#15171A;--bg-elev:#1C1F23;--bg-elev2:#232629;
+  --paper:#E8E4DC;--paper-dim:#A8A39A;
+  --l5:#D4452E;--l5-dim:#4A2620;
+  --l4:#D4783C;--l4-dim:#5C4332;
+  --l3:#8B8378;--l3-dim:#3A3835;
+  --l2:#7A9B7E;--l2-dim:#37423A;
+  --l1:#5C7A60;--l1-dim:#2E372F;
+  --line:#2C2F33;--danger:#C2543D;--accent:#D4783C;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--paper);font-family:-apple-system,'Inter',system-ui,sans-serif;height:100%;}
+.mono{font-family:'SF Mono',Menlo,monospace;}
+
+#field{position:relative;width:100%;transition:filter .3s ease;}
+#field.dimmed{filter:brightness(0.35) blur(1px);}
+
+.sphere{
+  position:absolute;
+  border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  will-change:transform;
+  touch-action:none;
+  filter:drop-shadow(0 8px 16px rgba(0,0,0,0.45)) drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+}
+.sphere::before{
+  content:'';
+  position:absolute;
+  inset:0;
+  border-radius:50%;
+  background:radial-gradient(circle at 32% 26%, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.06) 28%, rgba(255,255,255,0) 55%);
+  pointer-events:none;
+  z-index:3;
+}
+.sphere .ring-svg{position:absolute; inset:0; pointer-events:none;}
+.sphere .ring-content{
+  position:relative; z-index:2;
+  display:flex; flex-direction:column; align-items:center;
+  pointer-events:none;
+}
+.sphere .pct{font-family:'SF Mono',Menlo,monospace; font-weight:700; color:var(--paper);}
+.sphere .name{
+  font-weight:600; color:var(--paper);
+  text-align:center; margin-top:1px; line-height:1.15;
+  max-width:88%; overflow:hidden;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+}
+.sphere.pressing{filter:brightness(1.25);}
+.sphere.hidden-for-popup{opacity:0; pointer-events:none;}
+
+#add-sphere{
+  position:fixed; right:18px; bottom:calc(env(safe-area-inset-bottom) + 18px);
+  width:58px; height:58px; border-radius:50%;
+  background:var(--bg-elev2); border:1.5px dashed var(--accent);
+  display:flex; align-items:center; justify-content:center;
+  z-index:25; color:var(--accent); font-size:26px; font-weight:300;
+  will-change:transform;
+}
+
+#close-btn{
+  position:fixed; right:16px; top:calc(env(safe-area-inset-top) + 14px);
+  width:36px; height:36px; border-radius:50%;
+  background:var(--bg-elev2); border:1px solid var(--line);
+  display:none; align-items:center; justify-content:center;
+  z-index:60; color:var(--paper-dim); font-size:16px;
+}
+#close-btn.visible{display:flex;}
+
+#popup-overlay{
+  position:fixed; inset:0; z-index:50;
+  display:none;
+  align-items:center; justify-content:center;
+  pointer-events:none;
+}
+#popup-overlay.visible{display:flex; pointer-events:auto;}
+#popup{
+  width:min(86vw, 380px);
+  max-height:74vh;
+  background:var(--bg-elev);
+  border-radius:28px;
+  overflow:hidden;
+  display:flex; flex-direction:column;
+  transform:scale(0.3);
+  opacity:0;
+  transition:transform .32s cubic-bezier(.25,1.4,.4,1), opacity .22s ease;
+  box-shadow:0 24px 70px rgba(0,0,0,0.55);
+}
+#popup.open{transform:scale(1); opacity:1;}
+#popup-head{
+  padding:20px 20px 12px 20px; flex-shrink:0;
+}
+#popup-title{font-size:17px; font-weight:700; color:var(--paper);}
+#popup-meta{font-size:11.5px; color:#8B8378; margin-top:4px;}
+#popup-tasks{
+  padding:4px 16px 18px 16px;
+  overflow-y:auto;
+  flex:1;
+}
+.task{background:var(--bg-elev2);border-radius:12px;padding:11px 12px;margin-bottom:8px;}
+.task-name{font-size:13.5px;color:var(--paper);line-height:1.3;}
+.task-name.done{color:#8B8378;text-decoration:line-through;}
+.task-note{font-size:11.5px;color:var(--paper-dim);margin-top:4px;line-height:1.4;}
+.slider-row{display:flex;align-items:center;gap:8px;margin-top:7px;}
+input[type=range]{-webkit-appearance:none;flex:1;height:4px;border-radius:2px;background:var(--line);outline:none;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:17px;height:17px;border-radius:50%;background:var(--accent);border:2px solid var(--bg);}
+.pct-readout{font-size:11px;width:34px;text-align:right;color:var(--paper-dim);}
+
+.haptic-rig{position:fixed; left:-9999px; top:-9999px; opacity:0;}
+
+.hint{
+  position:fixed; bottom:calc(env(safe-area-inset-bottom) + 14px); left:18px;
+  font-size:10.5px; color:#5A5854; z-index:5; pointer-events:none;
+}
+</style>
+</head>
+<body>
+
+<div id="field"></div>
+<div id="add-sphere">+</div>
+<button id="close-btn" onclick="closePopup()">✕</button>
+<div class="hint">hold a sphere to open it</div>
+
+<div id="popup-overlay" onclick="if(event.target===this) closePopup()">
+  <div id="popup">
+    <div id="popup-head">
+      <div id="popup-title"></div>
+      <div id="popup-meta" class="mono"></div>
+    </div>
+    <div id="popup-tasks"></div>
+  </div>
+</div>
+
+<label class="haptic-rig" for="haptic-checkbox">
+  <input type="checkbox" switch id="haptic-checkbox">
+</label>
+
+<script>
+const ADJECTIVES = ["Quiet","Crimson","Northern","Hollow","Velvet","Iron","Amber","Drift","Salt","Echo","Faded","Bright","Slow","Tangled","Loose","Steep","Pale","Deep","Wild","Last"];
+const NOUNS = ["Harbor","Ledger","Circuit","Garden","Trail","Engine","Signal","Anchor","Cipher","Bramble","Compass","Furnace","Lantern","Channel","Forge","Pocket","Ridge","Current","Thread","Vault"];
+
+function randomName(){
+  const a = ADJECTIVES[Math.floor(Math.random()*ADJECTIVES.length)];
+  const n = NOUNS[Math.floor(Math.random()*NOUNS.length)];
+  return a + " " + n;
+}
+
+const tierStyle = {
+  5:{baseSize:96, color:'#D4452E', dim:'#4A2620'},
+  4:{baseSize:84, color:'#D4783C', dim:'#5C4332'},
+  3:{baseSize:72, color:'#8B8378', dim:'#3A3835'},
+  2:{baseSize:60, color:'#7A9B7E', dim:'#37423A'},
+  1:{baseSize:48, color:'#5C7A60', dim:'#2E372F'},
+};
+
+function makeProject(idx){
+  const urgency = 1 + Math.floor(Math.random()*5);
+  const taskCount = 1 + Math.floor(Math.random()*4);
+  const tasks = [];
+  for(let i=0;i<taskCount;i++){
+    tasks.push({ name: "Step " + (i+1) + ": " + randomName().toLowerCase(), pct: Math.floor(Math.random()*101), note: Math.random()>0.5 ? "Notes on " + randomName().toLowerCase() + "." : "" });
+  }
+  return { id:'p'+idx, name: randomName(), urgency, tasks };
+}
+
+const projects = [];
+for(let i=0;i<30;i++) projects.push(makeProject(i));
+
+function projectProgress(p){
+  if(p.tasks.length===0) return 0;
+  return Math.round(p.tasks.reduce((a,t)=>a+t.pct,0)/p.tasks.length);
+}
+
+function buoyancyOf(p){
+  const pct = projectProgress(p);
+  return (p.urgency * 2) + (pct * 0.08);
+}
+
+const fieldEl = document.getElementById('field');
+const vw = () => window.innerWidth || 390;
+const vh = () => window.innerHeight || 800;
+
+const bodies = projects.map(p => {
+  const size = tierStyle[p.urgency].baseSize;
+  return {
+    id: p.id,
+    project: p,
+    size,
+    x: margin_rand(size),
+    y: 100 + Math.random()*(vh()*0.85),
+    vx: (Math.random()-0.5)*0.4,
+    vy: 0,
+    el: null,
+  };
+});
+function margin_rand(size){
+  const m = 14;
+  return m + Math.random() * Math.max(10, vw() - size - m*2);
+}
+
+function buildSphereDom(body){
+  const p = body.project;
+  const tier = tierStyle[p.urgency];
+  const el = document.createElement('div');
+  el.className = 'sphere';
+  el.id = 'sphere-' + p.id;
+  el.style.width = body.size + 'px';
+  el.style.height = body.size + 'px';
+  el.style.background = `radial-gradient(circle at 38% 32%, ${tier.color}26, ${tier.dim}cc 70%)`;
+  renderSphereInner(el, body);
+  attachPressHandlers(el, body);
+  fieldEl.appendChild(el);
+  body.el = el;
+  return el;
+}
+
+function renderSphereInner(el, body){
+  const p = body.project;
+  const tier = tierStyle[p.urgency];
+  const pct = projectProgress(p);
+  const stroke = 6;
+  const r = (body.size - stroke)/2;
+  const c = 2*Math.PI*r;
+  const offset = c - (pct/100)*c;
+  el.innerHTML = `
+    <svg class="ring-svg" width="${body.size}" height="${body.size}" viewBox="0 0 ${body.size} ${body.size}">
+      <circle cx="${body.size/2}" cy="${body.size/2}" r="${r}" fill="none" stroke="${tier.dim}" stroke-width="${stroke}"/>
+      <circle cx="${body.size/2}" cy="${body.size/2}" r="${r}" fill="none" stroke="${tier.color}" stroke-width="${stroke}"
+        stroke-dasharray="${c}" stroke-dashoffset="${offset}" stroke-linecap="round"
+        transform="rotate(-90 ${body.size/2} ${body.size/2})"/>
+    </svg>
+    <div class="ring-content">
+      <div class="pct" style="font-size:${body.size*0.2}px">${pct}%</div>
+      <div class="name" style="font-size:${Math.max(8.5, body.size*0.085)}px">${escapeHtml(truncateName(p.name, body.size))}</div>
+    </div>`;
+}
+function truncateName(name, size){
+  const maxChars = Math.round(size/4.2);
+  return name.length > maxChars*2 ? name.slice(0, maxChars*2-1) + '…' : name;
+}
+function escapeHtml(s){ const d=document.createElement('div'); d.innerText=s||''; return d.innerHTML; }
+
+projects.forEach((p, i) => buildSphereDom(bodies[i]));
+
+let pressTimer = null;
+let pressTarget = null;
+const HOLD_MS = 700;
+
+function attachPressHandlers(el, body){
+  const start = (e) => {
+    if(popupOpen) return;
+    pressTarget = body;
+    el.classList.add('pressing');
+    pressTimer = setTimeout(() => {
+      triggerHold(body);
+    }, HOLD_MS);
+  };
+  const cancel = () => {
+    clearTimeout(pressTimer);
+    el.classList.remove('pressing');
+    pressTarget = null;
+  };
+  el.addEventListener('touchstart', start, {passive:true});
+  el.addEventListener('touchend', cancel);
+  el.addEventListener('touchmove', cancel);
+  el.addEventListener('touchcancel', cancel);
+  el.addEventListener('mousedown', start);
+  el.addEventListener('mouseup', cancel);
+  el.addEventListener('mouseleave', cancel);
+}
+
+function fireHaptic(){
+  try {
+    const cb = document.getElementById('haptic-checkbox');
+    const label = cb.closest('label');
+    label.click();
+  } catch(e){}
+}
+
+let popupOpen = false;
+
+function triggerHold(body){
+  fireHaptic();
+  const el = body.el;
+  el.classList.remove('pressing');
+  body.bulging = true;
+  setTimeout(() => {
+    body.bulging = false;
+    openPopup(body);
+  }, 130);
+}
+
+function openPopup(body){
+  popupOpen = true;
+  const p = body.project;
+  const pct = projectProgress(p);
+
+  document.getElementById('field').classList.add('dimmed');
+  document.getElementById('close-btn').classList.add('visible');
+  document.getElementById('add-sphere').style.opacity = '0.25';
+
+  document.getElementById('popup-title').textContent = p.name;
+  document.getElementById('popup-meta').textContent = pct + '% complete · ' + p.tasks.length + ' tasks · level ' + p.urgency;
+  document.getElementById('popup-tasks').innerHTML = p.tasks.map(t => `
+    <div class="task">
+      <div class="task-name ${t.pct===100?'done':''}">${escapeHtml(t.name)}</div>
+      ${t.note ? `<div class="task-note">${escapeHtml(t.note)}</div>` : ''}
+      <div class="slider-row">
+        <input type="range" min="0" max="100" value="${t.pct}" disabled>
+        <div class="pct-readout mono">${t.pct}%</div>
+      </div>
+    </div>`).join('');
+
+  const overlay = document.getElementById('popup-overlay');
+  const popup = document.getElementById('popup');
+  overlay.classList.add('visible');
+  requestAnimationFrame(() => popup.classList.add('open'));
+}
+
+function closePopup(){
+  popupOpen = false;
+  document.getElementById('popup').classList.remove('open');
+  document.getElementById('field').classList.remove('dimmed');
+  document.getElementById('close-btn').classList.remove('visible');
+  document.getElementById('add-sphere').style.opacity = '1';
+  setTimeout(() => {
+    document.getElementById('popup-overlay').classList.remove('visible');
+  }, 260);
+}
+
+const DAMPING = 0.965;
+const COLLISION_DAMPING = 0.6;
+const CEILING_PAD = 24;
+
+function computePageHeight(){
+  const oneScreen = vh();
+  const perProjectAllowance = 60;
+  const neededForProjects = CEILING_PAD + (bodies.length * perProjectAllowance);
+  return Math.max(oneScreen, neededForProjects);
+}
+const PAGE_HEIGHT = computePageHeight();
+document.body.style.height = PAGE_HEIGHT + 'px';
+document.getElementById('field').style.height = PAGE_HEIGHT + 'px';
+
+function step(){
+  if(!popupOpen){
+    bodies.forEach(b => {
+      if(b.bulging) return;
+      const buoy = buoyancyOf(b.project);
+      const accel = buoy * 0.0028;
+      b.vy -= accel;
+      b.vy *= DAMPING;
+      b.vx *= DAMPING;
+      b.vx += (Math.random()-0.5) * 0.025;
+      b.x += b.vx;
+      b.y += b.vy;
+    });
+
+    bodies.forEach(b => {
+      if(b.bulging) return;
+      const r = b.size/2;
+      if(b.y - r < CEILING_PAD){
+        b.y = CEILING_PAD + r;
+        b.vy *= -COLLISION_DAMPING;
+      }
+      const floor = PAGE_HEIGHT;
+      if(b.y + r > floor){
+        b.y = floor - r;
+        b.vy *= -COLLISION_DAMPING;
+      }
+      if(b.x - r < 6){ b.x = 6 + r; b.vx *= -COLLISION_DAMPING; }
+      if(b.x + r > vw()-6){ b.x = vw()-6-r; b.vx *= -COLLISION_DAMPING; }
+    });
+
+    for(let i=0;i<bodies.length;i++){
+      for(let j=i+1;j<bodies.length;j++){
+        const a = bodies[i], b = bodies[j];
+        if(a.bulging || b.bulging) continue;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const dist = Math.sqrt(dx*dx+dy*dy) || 0.001;
+        const minDist = (a.size + b.size)/2 + 3;
+        if(dist < minDist){
+          const overlap = (minDist - dist)/2;
+          const nx = dx/dist, ny = dy/dist;
+          a.x -= nx*overlap; a.y -= ny*overlap;
+          b.x += nx*overlap; b.y += ny*overlap;
+          const relVx = b.vx - a.vx, relVy = b.vy - a.vy;
+          const rel = relVx*nx + relVy*ny;
+          if(rel < 0){
+            const imp = rel * COLLISION_DAMPING;
+            a.vx += imp*nx; a.vy += imp*ny;
+            b.vx -= imp*nx; b.vy -= imp*ny;
+          }
+        }
+      }
+    }
+  }
+
+  bodies.forEach(b => {
+    if(!b.el) return;
+    const scale = b.bulging ? 1.18 : 1;
+    b.el.style.transition = b.bulging ? 'transform .12s cubic-bezier(.3,1.6,.4,1)' : 'none';
+    b.el.style.transform = `translate(${b.x - b.size/2}px, ${b.y - b.size/2}px) scale(${scale})`;
+  });
+
+  requestAnimationFrame(step);
+}
+requestAnimationFrame(step);
+
+let addPhase = Math.random()*Math.PI*2;
+function wobbleAdd(t){
+  const time = t/1000;
+  const dx = Math.sin(time*0.7 + addPhase)*2.5;
+  const dy = Math.cos(time*0.6 + addPhase)*2;
+  document.getElementById('add-sphere').style.transform = `translate(${dx}px, ${dy}px)`;
+  requestAnimationFrame(wobbleAdd);
+}
+requestAnimationFrame(wobbleAdd);
+
+document.getElementById('add-sphere').addEventListener('click', () => {
+  fireHaptic();
+  alert('New project flow goes here.');
+});
+</script>
+</body>
+</html>
